@@ -11,8 +11,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ExergyPowerManager.settings")
 django.setup()
 
 header = {
-    'Referer': 'https://pccs.kepco.co.kr/iSmart/jsp/cm/login/main.jsp',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36'
+    'Referer': 'https://pp.kepco.co.kr/intro.do',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36'
 }
 
 # class CallbackTask(celery.Task):
@@ -28,11 +28,11 @@ def totalDays(start_date, end_date):
 @shared_task(bind=True)
 def scraping(self, crawl_num, start_year, end_year, start_month, end_month, start_day, end_day):
     with requests.Session() as s:
-        base_URL = 'https://pccs.kepco.co.kr'
+        base_URL = 'https://pp.kepco.co.kr/login'
         res = s.get(base_URL)
         soup = bs(res.content, 'html.parser')
-        target_URL = soup.find('frame').get('src')
-        target_URL = base_URL + target_URL
+        # target_URL = soup.find('frame').get('src')
+        # target_URL = base_URL + target_URL
 
         cur_logininfo = LoginInfo.objects.get(pk=crawl_num)
         progress_recorder = ProgressRecorder(self)
@@ -41,7 +41,7 @@ def scraping(self, crawl_num, start_year, end_year, start_month, end_month, star
 
         LOGIN_INFO = {'userId': cur_logininfo.userId, 'password': cur_logininfo.userPw}
 
-        login_req = s.post(base_URL + '/iSmart/cm/login.do', headers=header, data=LOGIN_INFO)
+        login_req = s.post(base_URL + '/login', headers=header, data=LOGIN_INFO)
         # print(login_req.headers)
 
         while start_year != end_year or start_month != end_month or start_day != end_day + 1:  # iterate usage_page
