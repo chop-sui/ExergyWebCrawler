@@ -1,0 +1,75 @@
+{% extends 'accounts/base.html' %}
+{% load static %}
+{% block title %}<title>Worklist</title>{% endblock title %}
+
+{% block scripts %}
+  <script src="{% static 'celery_progress/celery_progress.js' %}"></script>
+    {% if task_id_items %}
+        {% for key, value in task_id_items.items %}
+            <script>
+                document.addEventListener("DOMContentLoaded", function () {
+                    var progressUrl = "{% url 'celery_progress:task_status' value %}";
+                    CeleryProgressBar.initProgressBar(progressUrl, {
+                        progressBarId: "progress-bar{{ key }}",
+                        progressBarMessageId: "progress-bar{{ key }}-message"
+                    });
+                });
+            </script>
+        {% endfor %}
+    {% endif %}
+{% endblock scripts %}
+
+{% block css %}
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+
+    <style>
+        #progress-bar {
+        margin-top: 1em;
+        }
+    </style>
+
+{% endblock css %}
+
+{% block content %}
+    {% if worklist %}
+        <table class="table table-hover table-responsive">
+            <thead>
+            <th>Number</th>
+            <th>LoginID</th>
+            <th>StartDate</th>
+            <th>EndDate</th>
+            <th>Status</th>
+            <th>Export</th>
+            </thead>
+            <tbody>
+            {% for work in worklist %}
+                <tr>
+                    <td>{{ work.pk }}</td>
+                    <td>{{ work.userId }}</td>
+                    <td>{{ work.startDate }}</td>
+                    <td>{{ work.endDate }}</td>
+                    <td>
+                        <div class='progress-wrapper'>
+                            <div id ='progress-bar{{ work.id }}' class='progress-bar' style="background-color: #68a9ef; width: 0%;">&nbsp;</div>
+                            <script>
+                                var work_id = '{{ work.id }}';
+                                console.log(work_id)
+                            </script>
+                        </div>
+                        <div id="progress-bar{{ work.id }}-message">Waiting for progress to start...</div>
+                    </td>
+                    <td><a href="/worklist/export/excel/{{ work.id }}">Download</a></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <h1>No Work Found</h1>
+    {% endif %}
+    <!-- 버튼 click 시 url 이동 -->
+    <a href="/worklist/login/">
+        <button class="btn btn-primary" type="button">Create New Work</button>
+    </a>
+{% endblock content %}
+
+

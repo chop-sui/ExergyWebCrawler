@@ -1,0 +1,97 @@
+{% extends 'accounts/base.html' %}
+
+{% block title %}<title>게시글 수정 - {{ article.pk }}. {{ article.title }}</title>{% endblock title %}
+
+{% block css %}
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+    <style>
+        .creatework {
+            width: 360px;
+            margin: 0 auto;
+        }
+
+        p {
+            text-align: center;
+        }
+
+        label {
+            width: 50%;
+            text-align: left;
+        }
+
+        .control-label {
+            width: 100%;
+        }
+
+        .creatework .form-actions > button {
+            width: 100%;
+        }
+
+
+        .form > div {
+            display: flex;
+            justify-content: center;
+            padding-bottom: 7px;
+            align-items: center;
+        }
+
+        label {
+            flex: 1;
+            text-align: left;
+        }
+
+        button {
+            width: 85px;
+            float: right;
+            padding: 3px;
+            margin-top: 10px;
+            margin-right: 7px;
+        }
+
+        input {
+            padding: 5px;
+            width: 150px;
+            height: 27px;
+            margin-bottom: 10px;
+        }
+
+        select {
+            width: 150px;
+            height: 27px;
+            padding: 5px;
+        }
+    </style>
+{% endblock css %}
+
+{% block content %}
+    <div class="panel panel-default creatework">
+        <div class="panel-heading">
+            Create Work
+        </div>
+        <div class="panel-body">
+            <form action="." method="post" class="form-horizontal">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create">
+                <div>
+                    <label for="userId">iSmart ID</label>
+                    <input type="text" id="userId" name="userId" placeholder="ID">
+                </div>
+                <div>
+                    <label for="userPw">Password</label>
+                    <input type="password" id="userPw" name="userPw" placeholder="Password">
+                </div>
+                <div>
+                    <label for="startDate">StartDate</label>
+                    <input type="date" id="startDate" name="startDate">
+
+                </div>
+                <div>
+                    <label for="endDate">EndDate</label>
+                    <input type="date" id="endDate" name="endDate">
+                </div>
+
+                <button type="submit" class="btn btn-primary">Crawl</button>
+            </form>
+        </div>
+    </div>
+{% endblock content %}
