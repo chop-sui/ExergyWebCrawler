@@ -14,25 +14,14 @@ header = {
     'Referer': 'https://pp.kepco.co.kr/intro.do',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36'
 }
-
-# class CallbackTask(celery.Task):
-#     def on_success(self, retval, task_id, args, kwargs):
-
-
 def totalDays(start_date, end_date):
     return (end_date-start_date).days
-
-
 
 # celery -A ExergyPowerManager worker -l info (Command call for celery server)
 @shared_task(bind=True)
 def scraping(self, crawl_num, start_year, end_year, start_month, end_month, start_day, end_day):
     with requests.Session() as s:
-        base_URL = 'https://pp.kepco.co.kr/login'
-        res = s.get(base_URL)
-        soup = bs(res.content, 'html.parser')
-        # target_URL = soup.find('frame').get('src')
-        # target_URL = base_URL + target_URL
+        login_url = 'https://pp.kepco.co.kr/login'
 
         cur_logininfo = LoginInfo.objects.get(pk=crawl_num)
         progress_recorder = ProgressRecorder(self)
@@ -41,8 +30,7 @@ def scraping(self, crawl_num, start_year, end_year, start_month, end_month, star
 
         LOGIN_INFO = {'userId': cur_logininfo.userId, 'password': cur_logininfo.userPw}
 
-        login_req = s.post(base_URL + '/login', headers=header, data=LOGIN_INFO)
-        # print(login_req.headers)
+        s.post(login_url, headers=header, data=LOGIN_INFO)
 
         while start_year != end_year or start_month != end_month or start_day != end_day + 1:  # iterate usage_page
             print(start_year, start_month, start_day)
@@ -72,33 +60,33 @@ def scraping(self, crawl_num, start_year, end_year, start_month, end_month, star
                     start_month = 1
                     start_day = 1
 
+            start_year_str = str(start_year)
+            start_month_str = ""
+            start_month_day = ""
+            if start_month < 10:
+                start_month_str = "0" + str(start_month)
+            if start_day < 10:
+                start_day_str = "0" + str(start_day)
+
             data_15 = {
-                'diodval': 30,
-                'reviseFlag': 30,
-                'year': start_year,
-                'month': start_month,
-                'day': start_day,
-                'diodGubun': 0,
-                'searchType_min': 15,
+                'SELECT_ID': start_year_str + start_month_str + start_day_str,
+                'SEL_METER_ID': "",
+                'TIME_TYPE': "15"
             }
 
             data_30 = {
-                'diodval': 30,
-                'reviseFlag': 30,
-                'year': start_year,
-                'month': start_month,
-                'day': start_day,
-                'diodGubun': 0,
-                'searchType_min': 30,
+                'SELECT_ID': start_year_str + start_month_str + start_day_str,
+                'SEL_METER_ID': "",
+                'TIME_TYPE': "30"
             }
 
             # 1 hour data crawl
 
-            usage_page = s.post('https://pccs.kepco.co.kr/iSmart/pccs/usage/getGlobalUsageStats.do',
+            usage_page = s.post('https://pp.kepco.co.kr/rs/rs0101N_hour.do',
                                 data=data_30)
 
             soup = bs(usage_page.text, 'html.parser')
-
+            print(usage_page.text)
             table_check = soup.find('table', {'class': 'basic_table'})
 
             if table_check is None:
