@@ -157,5 +157,7 @@ Thumbs.db
 # profiling data
 .prof
 
+# login_credentials
+testcrawl.py
 
 # End of https://www.toptal.com/developers/gitignore/api/django
