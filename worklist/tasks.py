@@ -1,4 +1,6 @@
 from celery import shared_task
+from jsbn import RSAKey
+
 from celery_progress.backend import ProgressRecorder
 import requests
 from bs4 import BeautifulSoup as bs
@@ -11,9 +13,17 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ExergyPowerManager.settings")
 django.setup()
 
 header = {
-    'Referer': 'https://pp.kepco.co.kr/intro.do',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36',
+    'Content-Type': 'application/x-www-form-urlencoded'
 }
+
+def concat_cookies(cookie_jar):
+    cookie_rsa = cookie_jar.values()[1]
+    cookie_ssid = cookie_jar.values()[2]
+    jsession_id = cookie_jar.values()[0]
+    cookie_str = 'cookieSsId=' + cookie_ssid + '; ' + 'cookieRsa=' + cookie_rsa + '; ' + 'JSESSIONID=' + jsession_id
+    return cookie_str
+
 def totalDays(start_date, end_date):
     return (end_date-start_date).days
 
@@ -21,6 +31,7 @@ def totalDays(start_date, end_date):
 @shared_task(bind=True)
 def scraping(self, crawl_num, start_year, end_year, start_month, end_month, start_day, end_day):
     with requests.Session() as s:
+        base_url = 'https://pp.kepco.co.kr/'
         login_url = 'https://pp.kepco.co.kr/login'
 
         cur_logininfo = LoginInfo.objects.get(pk=crawl_num)
@@ -28,9 +39,7 @@ def scraping(self, crawl_num, start_year, end_year, start_month, end_month, star
         total_day = totalDays(cur_logininfo.startDate, cur_logininfo.endDate)
         cur_day = 0
 
-        LOGIN_INFO = {'userId': cur_logininfo.userId, 'password': cur_logininfo.userPw}
-
-        s.post(login_url, headers=header, data=LOGIN_INFO)
+        LOGIN_INFO = {'USER_ID': cur_logininfo.userId, 'USER_PWD': cur_logininfo.userPw}
 
         while start_year != end_year or start_month != end_month or start_day != end_day + 1:  # iterate usage_page
             print(start_year, start_month, start_day)
@@ -61,99 +70,93 @@ def scraping(self, crawl_num, start_year, end_year, start_month, end_month, star
                     start_day = 1
 
             start_year_str = str(start_year)
-            start_month_str = ""
-            start_month_day = ""
             if start_month < 10:
                 start_month_str = "0" + str(start_month)
             if start_day < 10:
                 start_day_str = "0" + str(start_day)
 
             data_15 = {
-                'SELECT_ID': start_year_str + start_month_str + start_day_str,
+                'SELECT_DT': start_year_str + start_month_str + start_day_str,
                 'SEL_METER_ID': "",
                 'TIME_TYPE': "15"
             }
 
             data_30 = {
-                'SELECT_ID': start_year_str + start_month_str + start_day_str,
+                'SELECT_DT': start_year_str + start_month_str + start_day_str,
                 'SEL_METER_ID': "",
                 'TIME_TYPE': "30"
             }
 
+            # login
+            first_page = s.get(base_url)
+            cookie_rsa = s.cookies.values()[1]
+            cookie_ssid = s.cookies.values()[2]
+            jsession_id = s.cookies.values()[0]
+            cookie_str = concat_cookies(s.cookies)
+            header['Cookie'] = cookie_str
+
+            html = first_page.text
+            soup = bs(html, 'html.parser')
+            rsa_exponent = soup.find('input', {'id': 'RSAExponent'})['value']  # == 10001
+            rsa = RSAKey()
+            rsa.setPublic(cookie_rsa, rsa_exponent)
+
+            id = jsession_id + '_' + rsa.encrypt(LOGIN_INFO['USER_ID'])
+            pw = jsession_id + '_' + rsa.encrypt(LOGIN_INFO['USER_PWD'])
+
+            payload = {'RSAExponent': rsa_exponent, 'USER_ID': id, 'USER_PWD': pw, 'viewType': 'web'}
+
+            s.post(login_url, headers=header, data=payload)
+
             # 1 hour data crawl
+            header['Content-Type'] = 'application/json'
+            header['Accept'] = 'application/json, text/javascript, */*; q=0.01'
+            header['X-Requested-With'] = 'XMLHttpRequest'
+            cookie_str = concat_cookies(s.cookies)
+            header['Cookie'] = cookie_str
+            res = s.post('https://pp.kepco.co.kr/rs/rs0101N_hour.do', json=data_30, headers=header)
 
-            usage_page = s.post('https://pp.kepco.co.kr/rs/rs0101N_hour.do',
-                                data=data_30)
+            # F_LARAP_QT: 무효전력(지상)
+            # F_LERAP_QT: 무효전력(진상)
+            # MR_HHMI2: 시
+            # F_AP_QT: 사용량
+            # MAX_PWR: 최대수요
+            # F_LARAP_PF: 역률(지상)
+            # F_LERAP_PF: 역률(진상)
 
-            soup = bs(usage_page.text, 'html.parser')
-            print(usage_page.text)
-            table_check = soup.find('table', {'class': 'basic_table'})
+            hour_data_list = res.json()
 
-            if table_check is None:
-                cur_logininfo.status = "FAILED"
-                cur_logininfo.save()
-                return "OK"
-
-            table1_60 = soup.find_all('div', {'class': 'hori_table1'})[0]
-            table2_60 = soup.find_all('div', {'class': 'hori_table2'})[0]
-
-            powerdata1_60 = table1_60.find_all('tr')
-            powerdata2_60 = table2_60.find_all('tr')
-
-            powerdata_60 = powerdata1_60 + powerdata2_60
+            for data in hour_data_list:
+                PowerData(crawl_num=crawl_num,
+                          date=start_year_str + start_month_str + start_day_str,
+                          time=data['MR_HHMI2'],
+                          usage=data['F_AP_QT'],
+                          max_supply=data['MAX_PWR'],
+                          period="60").save()
 
             # 30 min data crawl
+            res = s.post('https://pp.kepco.co.kr/rs/rs0101N_chart.do', json=data_30, headers=header)
+            thirtymin_data_list = res.json()['list1']
 
-            table1_30 = soup.find_all('div', {'class': 'hori_table1'})[1]
-            table2_30 = soup.find_all('div', {'class': 'hori_table2'})[1]
-
-            powerdata1_30 = table1_30.find_all('tr')
-            powerdata2_30 = table2_30.find_all('tr')
-
-            powerdata_30 = powerdata1_30 + powerdata2_30
+            for data in thirtymin_data_list:
+                PowerData(crawl_num=crawl_num,
+                          date=start_year_str + start_month_str + start_day_str,
+                          time=data['MR_HHMI2'],
+                          usage=data['F_AP_QT'],
+                          max_supply=data['MAX_PWR'],
+                          period="30").save()
 
             # 15 min data crawl
+            res = s.post('https://pp.kepco.co.kr/rs/rs0101N_chart.do', json=data_15, headers=header)
+            fifteenmin_data_list = res.json()['list1']
 
-            usage_page = s.post('https://pccs.kepco.co.kr/iSmart/pccs/usage/getGlobalUsageStats.do',
-                                data=data_15)
-
-            soup = bs(usage_page.text, 'html.parser')
-
-            table1_15 = soup.find_all('div', {'class': 'hori_table1'})[1]
-            table2_15 = soup.find_all('div', {'class': 'hori_table2'})[1]
-
-            powerdata1_15 = table1_15.find_all('tr')
-            powerdata2_15 = table2_15.find_all('tr')
-
-            powerdata_15 = powerdata1_15 + powerdata2_15
-
-            powerdatas = {'60': powerdata_60, '30': powerdata_30, '15': powerdata_15}
-
-            result = []
-
-            for datas in list(powerdatas.values()):
-                period = (list(powerdatas.keys())[list(powerdatas.values()).index(datas)])
-                for data in datas:
-                    data_row = data.find_all('td')
-                    data_row = [x.text.strip() for x in data_row]
-                    if data_row:
-                        item_obj = {
-                            'date': str(start_year) + "-" + str(start_month) + "-" + str(start_day),
-                            'time': data_row[0],
-                            'usage': data_row[1],
-                            'max_supply': data_row[2],
-                            'period': period,
-                        }
-                        result.append(item_obj)
-
-            for item in result:
-                print(item['date'])
+            for data in fifteenmin_data_list:
                 PowerData(crawl_num=crawl_num,
-                          date=item['date'],
-                          time=item['time'],
-                          usage=item['usage'],
-                          max_supply=item['max_supply'],
-                          period=item['period']).save()
+                          date=start_year_str + start_month_str + start_day_str,
+                          time=data['MR_HHMI2'],
+                          usage=data['F_AP_QT'],
+                          max_supply=data['MAX_PWR'],
+                          period="15").save()
 
             cur_day += 1
             progress_recorder.set_progress(cur_day, total_day)
